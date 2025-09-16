@@ -323,34 +323,80 @@ def measure_with_codecarbon(code: str) -> Dict[str, Any]:
     return res
 
 def measure_with_eco2ai(code: str) -> Dict[str, Any]:
-    try: import eco2ai  # type: ignore
-    except Exception as e: return {"error":"eco2ai_missing","notes":"Installe : pip install eco2ai psutil","stderr":str(e)}
-    out_dir = Path(tempfile.mkdtemp(prefix="eco2ai_")); csv_path = out_dir / "emissions.csv"; tmp = _write_snippet(code)
-    data = {"duration_s": None, "energy_kwh": None, "co2eq_g": None, "emissions_kg": None, "country": None}; run_err, err_text = False, ""
     try:
-        tracker = eco2ai.Tracker(project_name="GreenAssistant", experiment_description="Eco2AI run", file_name=str(csv_path))
+        import eco2ai  # type: ignore
+    except Exception as e:
+        return {"error": "eco2ai_missing", "notes": "Installe : pip install eco2ai psutil", "stderr": str(e)}
+
+    import os, tempfile, csv, traceback, runpy
+    from pathlib import Path
+
+    # Dossier pour le CSV (écriture autorisée)
+    out_dir = Path(tempfile.mkdtemp(prefix="eco2ai_"))
+    csv_path = out_dir / "emissions.csv"
+
+    # Dossier temporaire pour le params.json d’Eco2AI (écriture autorisée)
+    params_dir = Path(tempfile.mkdtemp(prefix="eco2ai_params_"))
+
+    # Écrire le snippet à exécuter
+    tmp = Path(tempfile.mkdtemp(prefix="code_")) / "snippet.py"
+    tmp.write_text(code, encoding="utf-8")
+
+    data: Dict[str, Any] = {
+        "duration_s": None, "energy_kwh": None,
+        "co2eq_g": None, "emissions_kg": None, "country": None
+    }
+
+    run_err, err_text = False, ""
+    cwd = os.getcwd()
+    try:
+        # ⚠️ On se place dans un dossier en écriture le temps de créer/stopper le tracker
+        os.chdir(params_dir)
+        tracker = eco2ai.Tracker(
+            project_name="GreenAssistant",
+            experiment_description="Eco2AI run",
+            file_name=str(csv_path)  # chemin du CSV dans /tmp
+        )
         tracker.start()
-        try: runpy.run_path(str(tmp), run_name="__main__")
-        except SystemExit: pass
-        except Exception: run_err, err_text = True, traceback.format_exc()
-        finally: tracker.stop()
+        try:
+            runpy.run_path(str(tmp), run_name="__main__")
+        except SystemExit:
+            pass
+        except Exception:
+            run_err, err_text = True, traceback.format_exc()
+        finally:
+            tracker.stop()
     finally:
+        # On revient au répertoire initial
+        try: os.chdir(cwd)
+        except Exception: pass
         try: tmp.unlink(missing_ok=True)
         except Exception: pass
+
+    # Lecture des résultats
     try:
         if csv_path.exists():
-            with csv_path.open("r", encoding="utf-8") as f: rows = list(csv.DictReader(f))
+            with csv_path.open("r", encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
             if rows:
                 last = rows[-1]
                 def ffloat(x, default=None):
-                    try: return float(x) if x not in (None,"","None") else default
-                    except: return default
+                    try:
+                        return float(x) if x not in (None, "", "None") else default
+                    except:
+                        return default
                 data["duration_s"] = ffloat(last.get("duration(s)"))
                 data["energy_kwh"] = ffloat(last.get("power_consumption(kWTh)"))
-                co2_kg = ffloat(last.get("CO2_emissions(kg)")); data["emissions_kg"] = co2_kg; data["co2eq_g"] = co2_kg*1000.0 if co2_kg is not None else None
+                co2_kg = ffloat(last.get("CO2_emissions(kg)"))
+                data["emissions_kg"] = co2_kg
+                data["co2eq_g"] = co2_kg * 1000.0 if co2_kg is not None else None
                 data["country"] = last.get("country") or None
-    except Exception: pass
-    if run_err: data["run_error"]=True; data["stderr"]=err_text.strip()
+    except Exception:
+        pass
+
+    if run_err:
+        data["run_error"] = True
+        data["stderr"] = err_text.strip()
     return data
 
 # ───────────────────────────── UI ─────────────────────────────
