@@ -2,7 +2,5 @@ streamlit>=1.36
 psutil>=5.9
 requests>=2.31
 codecarbon
-carbontracker
 eco2ai
 tracarbon
-
