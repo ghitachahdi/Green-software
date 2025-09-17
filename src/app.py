@@ -518,7 +518,7 @@ if gen_btn and code_to_generate.strip():
     ss["generated_code"] = green_code
     ss["rag_sources"] = [f"{p.pid} — {p.title}" for p in sources]
 
-    st.subheader("Code green généré (proposition)")
+    st.subheader("Code green généré")
     st.code(green_code, language="python" if lang == "python" else None)
     st.download_button("Télécharger le code optimisé",
         data=green_code,
