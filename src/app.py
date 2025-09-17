@@ -325,20 +325,31 @@ def measure_with_codecarbon(code: str) -> Dict[str, Any]:
 def measure_with_eco2ai(code: str) -> Dict[str, Any]:
     try:
         import eco2ai  # type: ignore
-        import eco2ai.utils as eco_utils  # on va surcharger set_params ici
+        import eco2ai.utils as eco_utils
     except Exception as e:
         return {"error": "eco2ai_missing", "notes": "Installe : pip install eco2ai psutil", "stderr": str(e)}
 
     import os, tempfile, csv, traceback, runpy
     from pathlib import Path
 
-    # Dossiers temporaires (écriture autorisée sur Streamlit Cloud)
+    # Dossiers temporaires en écriture (ok sur Streamlit Cloud)
     out_dir = Path(tempfile.mkdtemp(prefix="eco2ai_out_"))
     cfg_dir = Path(tempfile.mkdtemp(prefix="eco2ai_cfg_"))
     csv_path = out_dir / "emissions.csv"
-    params_json = cfg_dir / "params.json"
+    cfg_file = cfg_dir / "config.txt"   # eco2ai l’appelle "config.txt"
 
-    # Snippet à exécuter
+    # 1) Rediriger le chemin par défaut utilisé en interne par eco2ai
+    #    IMPORTANT : ne pas faire "from eco2ai.utils import CONFIG_FILE",
+    #    il faut modifier l’attribut du module.
+    eco_utils.CONFIG_FILE = str(cfg_file)
+
+    # 2) Sécuriser aussi l’appel interne à set_params(**dict) qui ne passe pas 'filename'
+    orig_set_params = getattr(eco_utils, "set_params")
+    def forced_set_params(*args, **kwargs):
+        kwargs.setdefault("filename", str(cfg_file))
+        return orig_set_params(*args, **kwargs)
+
+    # Snippet utilisateur à exécuter
     tmp = Path(tempfile.mkdtemp(prefix="code_")) / "snippet.py"
     tmp.write_text(code, encoding="utf-8")
 
@@ -346,27 +357,18 @@ def measure_with_eco2ai(code: str) -> Dict[str, Any]:
         "duration_s": None, "energy_kwh": None,
         "co2eq_g": None, "emissions_kg": None, "country": None
     }
-
     run_err, err_text = False, ""
+
     cwd = os.getcwd()
-
-    # --- Monkey-patch : on force l’emplacement de params.json ---
-    orig_set_params = getattr(eco_utils, "set_params", None)
-    def _forced_set_params(*args, **kwargs):
-        # quoi qu’il arrive, on redirige vers notre fichier temporaire
-        kwargs["filename"] = str(params_json)
-        return orig_set_params(*args, **kwargs)
-
     try:
-        if orig_set_params is not None:
-            eco_utils.set_params = _forced_set_params  # patch
-        # Ceinture + bretelles : on se place aussi dans un dossier writable
+        eco_utils.set_params = forced_set_params  # patch actif
+        # (Ceinture + bretelles) on se place aussi dans un dossier writable
         os.chdir(cfg_dir)
 
         tracker = eco2ai.Tracker(
             project_name="GreenAssistant",
             experiment_description="Eco2AI run",
-            file_name=str(csv_path),   # CSV dans /tmp
+            file_name=str(csv_path)  # CSV dans /tmp
         )
         tracker.start()
         try:
@@ -378,16 +380,16 @@ def measure_with_eco2ai(code: str) -> Dict[str, Any]:
         finally:
             try: tracker.stop()
             except Exception: pass
+
     finally:
-        # on restaure l’état
-        if orig_set_params is not None:
-            eco_utils.set_params = orig_set_params
+        # Restaurer l’état
+        eco_utils.set_params = orig_set_params
         try: os.chdir(cwd)
         except Exception: pass
         try: tmp.unlink(missing_ok=True)
         except Exception: pass
 
-    # Lecture du CSV de résultats
+    # Lire les résultats
     try:
         if csv_path.exists():
             with csv_path.open("r", encoding="utf-8") as f:
