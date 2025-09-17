@@ -36,6 +36,14 @@ div[data-testid="stWidgetLabel"] > label p, .stTextArea label p, .stSelectbox la
 }
 .stButton > button:hover{ background:var(--green-2) !important; }
 
+/* Download button en vert */
+.stDownloadButton > button{
+  min-width:200px !important; background:var(--green) !important; color:#fff !important;
+  border:none; border-radius:14px; padding:.60rem 1.2rem; box-shadow:0 6px 18px rgba(0,0,0,.35);
+  font-weight:700; letter-spacing:.2px;
+}
+.stDownloadButton > button:hover{ background:var(--green-2) !important; }
+
 /* Logo + Titre (sidebar) */
 .sidebar-logo{
   position:relative; display:flex; justify-content:center; align-items:center;
@@ -103,7 +111,6 @@ div[data-testid="stWidgetLabel"] > label p, .stTextArea label p, .stSelectbox la
 /* Carte résultat */
 .result-wrap{ margin: 8px 0 18px; }
 .result-card{ background:var(--card); border:1px solid var(--card-b); border-radius:16px; padding:18px 20px; box-shadow:0 8px 24px rgba(0,0,0,.28); }
-.result-headline{ font-size:1.8rem; font-weight:800; color:#fff; margin:0 0 12px; }
 .kpi-grid{ display:grid; gap:12px; grid-template-columns: repeat(3, minmax(0,1fr)); }
 .kpi{ background:linear-gradient(180deg,#151515 0%,#0f0f0f 100%); border:1px solid rgba(255,255,255,.08); border-radius:14px; padding:16px; text-align:center; }
 .kpi h4{ margin:0 0 6px; font-weight:700; font-size:1.1rem; color:#e9efe7; }
@@ -138,7 +145,11 @@ def _co2_fmt_kg(kg: Optional[float]) -> str:
     return f"{kg:.5f} kgCO₂"
 
 def _fmt_s(v: Optional[float]) -> str: return _fmt_num(v, lambda x: f"{x:.2f} s")
-def _fmt_kwh(v: Optional[float]) -> str: return _fmt_num(v, lambda x: f"{x:.3e} kWh")
+
+# kWh → Wh (pour l’affichage)
+def _fmt_wh(v: Optional[float]) -> str:
+    return _fmt_num(v, lambda x: f"{x*1000:.3f} Wh")
+
 def _fmt_g(v: Optional[float]) -> str: return _fmt_num(v, lambda x: f"{x:.3f} g")
 
 def _co2_level(kg: Optional[float]) -> str:
@@ -164,7 +175,7 @@ def detect_frameworks_python(code: str) -> List[str]:
     return [lib for lib in libs if re.search(rf"\b(?:import|from)\s+{lib}\b", code)]
 
 def _has_sleep_in_loop(code: str) -> bool:
-    rg = re.compile(r"(^[ \t]*for\s+\w+\s+in\s+range\s*\([^)]*\):)([\s\S]*?)(?=^[^\s]|$)", re.M)
+    rg = re.compile(r"(^[ \t]*for\s+\w+\s+in\s+range\s*\([^)]*\):)([\\s\\S]*?)(?=^[^\\s]|$)", re.M)
     for m in rg.finditer(code):
         if re.search(r"\n[ \t]+time\.sleep\s*\(", m.group(2)): return True
     return False
@@ -310,7 +321,7 @@ def measure_with_codecarbon(code: str) -> Dict[str, Any]:
             with csv_path.open("r", encoding="utf-8") as f: rows = list(csv.DictReader(f))
             if rows:
                 last = rows[-1]
-                def ffloat(x): 
+                def ffloat(x):
                     try: return float(x) if x not in (None,"","None") else None
                     except: return None
                 res["duration_s"]     = ffloat(last.get("duration"))
@@ -339,11 +350,9 @@ def measure_with_eco2ai(code: str) -> Dict[str, Any]:
     cfg_file = cfg_dir / "config.txt"   # eco2ai l’appelle "config.txt"
 
     # 1) Rediriger le chemin par défaut utilisé en interne par eco2ai
-    #    IMPORTANT : ne pas faire "from eco2ai.utils import CONFIG_FILE",
-    #    il faut modifier l’attribut du module.
     eco_utils.CONFIG_FILE = str(cfg_file)
 
-    # 2) Sécuriser aussi l’appel interne à set_params(**dict) qui ne passe pas 'filename'
+    # 2) Forcer filename pour set_params interne
     orig_set_params = getattr(eco_utils, "set_params")
     def forced_set_params(*args, **kwargs):
         kwargs.setdefault("filename", str(cfg_file))
@@ -362,8 +371,7 @@ def measure_with_eco2ai(code: str) -> Dict[str, Any]:
     cwd = os.getcwd()
     try:
         eco_utils.set_params = forced_set_params  # patch actif
-        # (Ceinture + bretelles) on se place aussi dans un dossier writable
-        os.chdir(cfg_dir)
+        os.chdir(cfg_dir)  # se placer dans un dossier writable
 
         tracker = eco2ai.Tracker(
             project_name="GreenAssistant",
@@ -382,7 +390,6 @@ def measure_with_eco2ai(code: str) -> Dict[str, Any]:
             except Exception: pass
 
     finally:
-        # Restaurer l’état
         eco_utils.set_params = orig_set_params
         try: os.chdir(cwd)
         except Exception: pass
@@ -452,21 +459,24 @@ def render_result(res: Dict[str, Any]) -> None:
     kg = res.get("emissions_kg"); co2g = res.get("co2eq_g")
     duration = res.get("duration_s"); energy = res.get("energy_kwh")
     cpu = res.get("cpu_energy_kwh"); gpu = res.get("gpu_energy_kwh"); ram = res.get("ram_energy_kwh")
-    headline = _co2_fmt_kg(kg) if isinstance(kg, (int,float)) else (_co2_fmt_kg(co2g/1000.0) if isinstance(co2g,(int,float)) else "Empreinte : indisponible")
+
+    # On n'affiche plus le gros titre en kgCO2
     co2_g_txt = _fmt_g(co2g) if isinstance(co2g,(int,float)) else (_fmt_g(kg*1000.0) if isinstance(kg,(int,float)) else "—")
-    duration_txt = _fmt_s(duration); energy_txt = _fmt_kwh(energy)
+    duration_txt = _fmt_s(duration); energy_txt = _fmt_wh(energy)
+
     extras = []
-    if isinstance(cpu, (int, float)): extras.append(f"CPU&nbsp;: {cpu:.3e} kWh")
-    if isinstance(gpu, (int, float)): extras.append(f"GPU&nbsp;: {gpu:.3e} kWh")
-    if isinstance(ram, (int, float)): extras.append(f"RAM&nbsp;: {ram:.3e} kWh")
+    if isinstance(cpu, (int, float)): extras.append(f"CPU&nbsp;: {_fmt_wh(cpu)}")
+    if isinstance(gpu, (int, float)): extras.append(f"GPU&nbsp;: {_fmt_wh(gpu)}")
+    if isinstance(ram, (int, float)): extras.append(f"RAM&nbsp;: {_fmt_wh(ram)}")
     extras_html = f'<div class="result-energies">Détails énergie&nbsp;: ' + " · ".join(extras) + "</div>" if extras else ""
+
     ctx = []
     for k in ["country","region","cloud_provider","provider","regions"]:
         if res.get(k): ctx.append(f"{k}: {res[k]}")
     ctx_html = f'<div class="result-context">Contexte&nbsp;: ' + " | ".join(ctx) + "</div>" if ctx else ""
+
     st.markdown(f"""
 <div class="result-wrap"><div class="result-card">
-  <div class="result-headline">{headline}</div>
   <div class="kpi-grid">
     <div class="kpi"><h4>Durée</h4><div class="val">{duration_txt}</div></div>
     <div class="kpi"><h4>Énergie</h4><div class="val">{energy_txt}</div></div>
@@ -504,7 +514,7 @@ if run_btn and code_to_analyse.strip():
         st.write(f"**Frameworks :** {', '.join(fw) if fw else '—'}")
         st.write("**Motifs énergivores détectés :** " + (", ".join(smells) if smells else "—"))
         st.markdown("### Recommandations")
-        if recos: 
+        if recos:
             for r in recos: st.markdown(f"- {r}")
         else:
             st.markdown("- Aucune recommandation détectée.")
@@ -525,13 +535,13 @@ if gen_btn and code_to_generate.strip():
         file_name="green_code_optimized.py" if lang == "python" else "green_code_optimized.txt",
         mime="text/plain"
     )
-    st.markdown("### Patterns RAG sélectionnés")
+    st.markdown("#### Patterns RAG sélectionnés")
     if sources:
         for s in ss["rag_sources"]: st.markdown(f"- {s}")
     else:
         st.markdown("- Aucun pattern pertinent.")
     if applied:
-        st.markdown("### Transformations appliquées")
+        st.markdown("#### Transformations appliquées")
         for a in applied: st.markdown(f"- {a}")
     else:
         st.info("Pas de transformation sûre appliquée — des notes/templates ont été ajoutés si utile.")
@@ -549,7 +559,8 @@ with st.sidebar:
             kg = res.get("emissions_kg"); co2_txt = _co2_fmt_kg(kg) if isinstance(kg,(int,float)) else "—"
             level = _co2_level(kg if isinstance(kg,(int,float)) else None)
             ts = h.get("timestamp",""); dur = res.get("duration_s"); en = res.get("energy_kwh")
-            dur_txt = _fmt_s(dur); en_txt = _fmt_kwh(en); code_prev = _short_code_preview(h.get("code",""))
+            dur_txt = _fmt_s(dur); en_txt = _fmt_wh(en)  # affichage en Wh dans l'historique
+            code_prev = _short_code_preview(h.get("code",""))
             st.markdown(f"""
 <div class="history-card">
   <div class="hdr">
