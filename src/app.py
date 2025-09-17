@@ -520,7 +520,7 @@ if gen_btn and code_to_generate.strip():
 
     st.subheader("Code green généré")
     st.code(green_code, language="python" if lang == "python" else None)
-    st.download_button("Télécharger le code optimisé",
+    st.download_button("Télécharger le code",
         data=green_code,
         file_name="green_code_optimized.py" if lang == "python" else "green_code_optimized.txt",
         mime="text/plain"
