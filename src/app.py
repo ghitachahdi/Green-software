@@ -156,7 +156,7 @@ details[data-testid="stExpander"]{
   overflow:hidden;
 }
 details[data-testid="stExpander"] > summary{
-  background:#141414 !important;        /* état normal */
+  background:#141414 !important;
   color:#e9efe7 !important;
   border-radius:12px;
   padding:.60rem .85rem;
@@ -193,7 +193,6 @@ details[data-testid="stExpander"] summary svg path{
   background:#1c1010 !important;
 }
 </style>
-
 """, unsafe_allow_html=True)
 
 # ───────────────────────────── Session ─────────────────────────────
@@ -221,8 +220,26 @@ def _co2_fmt_kg(kg: Optional[float]) -> str:
     return f"{kg:.5f} kgCO₂"
 
 def _fmt_s(v: Optional[float]) -> str: return _fmt_num(v, lambda x: f"{x:.2f} s")
+
+# (Ancien) Wh – on le garde si besoin ponctuel
 def _fmt_wh(v: Optional[float]) -> str: return _fmt_num(v, lambda x: f"{x*1000:.3f} Wh")
+
 def _fmt_g(v: Optional[float]) -> str: return _fmt_num(v, lambda x: f"{x:.3f} g")
+
+def _fmt_si(n: float, unit: str, steps=(1, 1e3, 1e6, 1e9), labels=("","k","M","G")) -> str:
+    """Formate avec préfixes SI (J → kJ → MJ → GJ)."""
+    for step, lab in zip(reversed(steps), reversed(labels)):
+        if abs(n) >= step:
+            out = f"{n/step:.3f} {lab}{unit}"
+            return out.replace(".000","")
+    return f"{n:.3f} {unit}".replace(".000","")
+
+def _fmt_joules_from_kwh(kwh: Optional[float]) -> str:
+    """Convertit kWh -> J puis formate automatiquement en J/kJ/MJ/GJ."""
+    if kwh is None:
+        return "—"
+    j = kwh * 3_600_000.0  # 1 kWh = 3.6e6 J
+    return _fmt_si(j, "J")
 
 def _co2_level(kg: Optional[float]) -> str:
     if kg is None: return "lv-ok"
@@ -236,15 +253,12 @@ def _tool_chip_cls(tool: str) -> str:
     if "eco2ai" in t: return "tool-e2"
     return ""
 
-# ───────────────────── Détection & Recos (bloc complet, à coller AVANT l'usage) ─────────────────────
-import re
-from typing import List, Optional
-
+# ───────────────────── Détection & Recos ─────────────────────
 def detect_language(code: str) -> str:
-    # Python : import / def
+    # Python
     if re.search(r"^\s*import\s+\w+", code, re.M) or re.search(r"\bdef\s+\w+\s*\(", code):
         return "python"
-    # JavaScript : function ... ( ou => {
+    # JavaScript
     if re.search(r"\bfunction\s+\w+\s*\(", code) or re.search(r"=>\s*{", code):
         return "javascript"
     return "unknown"
@@ -254,55 +268,29 @@ def detect_frameworks_python(code: str) -> List[str]:
     return [lib for lib in libs if re.search(rf"\b(?:import|from)\s+{lib}\b", code)]
 
 def _has_sleep_in_loop(code: str) -> bool:
-    # capture un bloc de boucle for ...: jusqu'à la prochaine ligne qui ne commence pas par un espace/tab ou fin de texte
     rg = re.compile(r"(^[ \t]*for\s+\w+\s+in\s+range\s*\([^)]*\):)([\s\S]*?)(?=^[^\s]|$)", re.M)
     for m in rg.finditer(code):
-        if re.search(r"\n[ \t]+time\.sleep\s*\(", m.group(2)):
-            return True
+        if re.search(r"\n[ \t]+time\.sleep\s*\(", m.group(2)): return True
     return False
 
 def detect_energy_smells_python(code: str) -> List[str]:
     smells: List[str] = []
-    if _has_sleep_in_loop(code):
-        smells.append("sleep_dans_boucle")
-
-    # I/O dans une boucle for range(...)
-    if re.search(r"for\s+\w+\s+in\s+range\s*\([^)]*\):[\s\S]*?(?:open\(|read\(|write\()", code):
-        smells.append("IO_dans_boucle")
-
-    # Concaténation de strings dans une boucle
-    if re.search(r"for\s+\w+\s+in\s+range\s*\([^)]*\):[\s\S]*?\w+\s*\+=\s*['\"]", code):
-        smells.append("concat_string_dans_boucle")
-
-    # Boucles imbriquées (2+)
-    if re.search(r"for[\s\S]*?for", code):
-        smells.append("boucles_imbriquees")
-
-    # NumPy importé mais accumulation += dans une boucle
-    if re.search(r"\b(?:import|from)\s+numpy\b", code) and re.search(r"for\s+.*:\s*[\s\S]*\+=", code):
-        smells.append("non_vectorise_alors_numpy_dispo")
-
-    # Requêtes HTTP répétitives dans une boucle
-    if re.search(r"requests\.(?:get|post|put|delete|patch|head)\(", code) and re.search(r"\bfor\s+", code):
-        smells.append("requetes_repetitives_sequentielles")
-
+    if _has_sleep_in_loop(code): smells.append("sleep_dans_boucle")
+    if re.search(r"for\s+\w+\s+in\s+range\s*\([^)]*\):[\s\S]*?(?:open\(|read\(|write\()", code): smells.append("IO_dans_boucle")
+    if re.search(r"for\s+\w+\s+in\s+range\s*\([^)]*\):[\s\S]*?\w+\s*\+=\s*['\"]", code): smells.append("concat_string_dans_boucle")
+    if re.search(r"for[\s\S]*?for", code): smells.append("boucles_imbriquees")
+    if re.search(r"\b(?:import|from)\s+numpy\b", code) and re.search(r"for\s+.*:\s*[\s\S]*\+=", code): smells.append("non_vectorise_alors_numpy_dispo")
+    if re.search(r"requests\.(?:get|post|put|delete|patch|head)\(", code) and re.search(r"\bfor\s+", code): smells.append("requetes_repetitives_sequentielles")
     return smells
 
 def suggestions_for(smells: List[str], frameworks: List[str]) -> List[str]:
-    """Retourne des recommandations simples à partir des odeurs détectées + libs présentes."""
     s: List[str] = []
-    if "non_vectorise_alors_numpy_dispo" in smells:
-        s.append("Vectoriser avec NumPy (np.dot, np.sum, broadcasting).")
-    if "sleep_dans_boucle" in smells:
-        s.append("Éviter time.sleep() dans les boucles ; utiliser un scheduler/événements.")
-    if "IO_dans_boucle" in smells:
-        s.append("Regrouper les I/O hors boucle (bufferisation, lecture/écriture en bloc).")
-    if "concat_string_dans_boucle" in smells:
-        s.append("Utiliser ''.join() ou io.StringIO plutôt que s += ... en boucle.")
-    if "requetes_repetitives_sequentielles" in smells:
-        s.append("Mutualiser (requests.Session) + paralléliser (asyncio/threading) avec throttling.")
-    if "pandas" in frameworks:
-        s.append("Préférer les opérations Pandas vectorisées à apply/itertuples.")
+    if "non_vectorise_alors_numpy_dispo" in smells: s.append("Vectoriser avec NumPy (np.dot, np.sum, broadcasting).")
+    if "sleep_dans_boucle" in smells: s.append("Éviter time.sleep() dans les boucles ; utiliser un scheduler/événements.")
+    if "IO_dans_boucle" in smells: s.append("Regrouper les I/O hors boucle (bufferisation, lecture/écriture en bloc).")
+    if "concat_string_dans_boucle" in smells: s.append("Utiliser ''.join() ou io.StringIO plutôt que s += ... en boucle.")
+    if "requetes_repetitives_sequentielles" in smells: s.append("Mutualiser (requests.Session) + paralléliser (asyncio/threading) avec throttling.")
+    if "pandas" in frameworks: s.append("Préférer les opérations Pandas vectorisées à apply/itertuples.")
     return s
 
 # ───────────── RAG local (patterns + réécriture prudente) ─────────────
@@ -400,10 +388,7 @@ def greenify_code(code: str, smells: List[str], lang: str) -> Tuple[str, List[st
 
 # ───────────────────── Helpers warning d’exécution ─────────────────────
 def preflight_compile(code: str) -> Tuple[bool, Optional[str]]:
-    """
-    Vérifie la validité syntaxique AVANT exécution pour éviter de lancer les trackers inutilement.
-    Retourne (ok, traceback_ou_None).
-    """
+    """Vérifie la validité syntaxique AVANT exécution"""
     try:
         compile(code, "<snippet>", "exec")
         return True, None
@@ -411,10 +396,7 @@ def preflight_compile(code: str) -> Tuple[bool, Optional[str]]:
         return False, traceback.format_exc()
 
 def show_run_warning(res: Dict[str, Any], contexte: str = "analyse") -> None:
-    """
-    Affiche un warning explicite si l'exécution a échoué.
-    Attend un dict 'res' pouvant contenir 'run_error' et 'stderr'.
-    """
+    """Affiche un warning explicite si l'exécution a échoué"""
     if res.get("run_error"):
         st.warning(f"⚠️ Alerte d’exécution ({contexte}) : erreur Python — le code n’a pas pu être lancé.")
         if res.get("stderr"):
@@ -592,16 +574,21 @@ def render_result(res: Dict[str, Any]) -> None:
     duration = res.get("duration_s"); energy = res.get("energy_kwh")
     cpu = res.get("cpu_energy_kwh"); gpu = res.get("gpu_energy_kwh"); ram = res.get("ram_energy_kwh")
     co2_g_txt = _fmt_g(co2g) if isinstance(co2g,(int,float)) else (_fmt_g(kg*1000.0) if isinstance(kg,(int,float)) else "—")
-    duration_txt = _fmt_s(duration); energy_txt = _fmt_wh(energy)
+    duration_txt = _fmt_s(duration)
+
+    # conversion en Joules (auto J/kJ/MJ/GJ)
+    energy_txt = _fmt_joules_from_kwh(energy)
     extras = []
-    if isinstance(cpu, (int, float)): extras.append(f"CPU&nbsp;: {_fmt_wh(cpu)}")
-    if isinstance(gpu, (int, float)): extras.append(f"GPU&nbsp;: {_fmt_wh(gpu)}")
-    if isinstance(ram, (int, float)): extras.append(f"RAM&nbsp;: {_fmt_wh(ram)}")
+    if isinstance(cpu, (int, float)): extras.append(f"CPU&nbsp;: {_fmt_joules_from_kwh(cpu)}")
+    if isinstance(gpu, (int, float)): extras.append(f"GPU&nbsp;: {_fmt_joules_from_kwh(gpu)}")
+    if isinstance(ram, (int, float)): extras.append(f"RAM&nbsp;: {_fmt_joules_from_kwh(ram)}")
     extras_html = f'<div class="result-energies">Détails énergie&nbsp;: ' + " · ".join(extras) + "</div>" if extras else ""
+
     ctx = []
     for k in ["country","region","cloud_provider","provider","regions"]:
         if res.get(k): ctx.append(f"{k}: {res[k]}")
     ctx_html = f'<div class="result-context">Contexte&nbsp;: ' + " | ".join(ctx) + "</div>" if ctx else ""
+
     st.markdown(f"""
 <div class="result-wrap"><div class="result-card">
   <div class="kpi-grid">
@@ -685,7 +672,6 @@ if run_btn and code_to_analyse.strip():
         else:
             st.markdown("- Aucune recommandation détectée.")
 
-
 # Génération (réécriture "green" sans exécuter le code généré)
 if gen_btn and code_to_generate.strip():
     lang = detect_language(code_to_generate)
@@ -727,7 +713,8 @@ with st.sidebar:
             kg = res.get("emissions_kg"); co2_txt = _co2_fmt_kg(kg) if isinstance(kg,(int,float)) else "—"
             level = _co2_level(kg if isinstance(kg,(int,float)) else None)
             ts = h.get("timestamp",""); dur = res.get("duration_s"); en = res.get("energy_kwh")
-            dur_txt = _fmt_s(dur); en_txt = _fmt_wh(en)
+            dur_txt = _fmt_s(dur)
+            en_txt = _fmt_joules_from_kwh(en)  # ➜ Joules dans l’historique aussi
             code_prev = _short_code_preview(h.get("code",""))
             st.markdown(f"""
 <div class="history-card">
