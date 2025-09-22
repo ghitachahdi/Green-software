@@ -638,16 +638,40 @@ if run_btn and code_to_analyse.strip():
 
     st.subheader("Résultats d’analyse")
 
-    # Erreur d'outil (lib manquante / non supporté)
-    if "error" in res and not res.get("run_error"):
+    # 1) Cas lib manquante / outil non dispo (res['error'])
+    if res.get("error"):
         st.error(res.get("notes") or f"Erreur {res.get('error')}")
         if res.get("stderr"):
-            with st.expander("Détails de l’erreur"):
+            with st.expander("Voir le détail de l’erreur (traceback)"):
                 st.code(res["stderr"])
 
-    # Alerte d’exécution quand le code ne se lance pas
-    if res.get("run_error"):
-        show_run_warning(res, "analyse")
+    # 2) Cas où le code utilisateur n’a pas pu s’exécuter (run_error / stderr)
+    elif res.get("run_error") or res.get("stderr"):
+        st.markdown(
+            """
+            <div style="
+                background:#2a2410;
+                border:1px solid rgba(255,255,255,.14);
+                color:#ffd36b;
+                padding:.75rem 1rem;
+                border-radius:12px;
+                display:flex; align-items:center; gap:.6rem;">
+                <span style="font-size:1.1rem;">⚠️</span>
+                <b style="font-weight:600;">Alerte d’exécution (analyse) :</b>
+                <span>erreur Python — le code n’a pas pu être lancé.</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if res.get("stderr"):
+            with st.expander("Voir le détail de l’erreur (traceback)"):
+                st.code(res["stderr"])
+
+        # Affiche quand même les KPI si quelques valeurs existent
+        if any(res.get(k) for k in ("duration_s","energy_kwh","emissions_kg","cpu_energy_kwh","gpu_energy_kwh","ram_energy_kwh")):
+            render_result(res)
+
+    # 3) Cas OK : pas d’erreur d’exécution
     else:
         render_result(res)
         st.markdown("### Analyse du code")
@@ -656,9 +680,11 @@ if run_btn and code_to_analyse.strip():
         st.write("**Motifs énergivores détectés :** " + (", ".join(smells) if smells else "—"))
         st.markdown("### Recommandations")
         if recos:
-            for r in recos: st.markdown(f"- {r}")
+            for r in recos:
+                st.markdown(f"- {r}")
         else:
             st.markdown("- Aucune recommandation détectée.")
+
 
 # Génération (réécriture "green" sans exécuter le code généré)
 if gen_btn and code_to_generate.strip():
