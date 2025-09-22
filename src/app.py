@@ -451,33 +451,68 @@ def measure_with_eco2ai(code: str) -> Dict[str, Any]:
         import eco2ai  # type: ignore
         import eco2ai.utils as eco_utils
     except Exception as e:
-        return {"error": "eco2ai_missing", "notes": "Installe : pip install eco2ai psutil", "stderr": str(e)}
-    out_dir = Path(tempfile.mkdtemp(prefix="eco2ai_out_"))
-    cfg_dir = Path(tempfile.mkdtemp(prefix="eco2ai_cfg_"))
+        return {
+            "error": "eco2ai_missing",
+            "notes": "Installe : pip install eco2ai psutil",
+            "stderr": str(e),
+        }
+
+    import os, tempfile, csv, traceback, runpy
+    from pathlib import Path
+
+    # ── Dossiers 100% écriture (compat Streamlit/Cloud) ─────────────────
+    tmp_root = Path(tempfile.gettempdir())  # typiquement /tmp
+    out_dir = tmp_root / f"eco2ai_out_{os.getpid()}"
+    cfg_dir = tmp_root / f"eco2ai_cfg_{os.getpid()}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+
     csv_path = out_dir / "emissions.csv"
-    cfg_file = cfg_dir / "config.txt"
+    cfg_file = cfg_dir / "config.json"   # peu importe l’extension
+
+    # ── Forcer les chemins de config d’Eco2AI ───────────────────────────
+    # 1) variable d’environnement lue par eco2ai
+    os.environ["ECO2AI_CONFIG"] = str(cfg_file)
+    # 2) constante utilisée en fallback interne
     eco_utils.CONFIG_FILE = str(cfg_file)
-    orig_set_params = getattr(eco_utils, "set_params")
-    def forced_set_params(*args, **kwargs):
-        kwargs.setdefault("filename", str(cfg_file))
-        return orig_set_params(*args, **kwargs)
+    # 3) pré-créer le fichier pour éviter PermissionError sur open(...,'w')
+    try:
+        if not cfg_file.exists():
+            cfg_file.write_text("{}", encoding="utf-8")
+    except Exception as e:
+        return {
+            "error": "eco2ai_permission",
+            "notes": "Impossible de créer le fichier de config Eco2AI dans /tmp.",
+            "stderr": str(e),
+        }
+
+    # ── Préparer le snippet utilisateur ─────────────────────────────────
     tmp = Path(tempfile.mkdtemp(prefix="code_")) / "snippet.py"
     tmp.write_text(code, encoding="utf-8")
+
     data: Dict[str, Any] = {
         "duration_s": None, "energy_kwh": None,
         "co2eq_g": None, "emissions_kg": None, "country": None
     }
     run_err, err_text = False, ""
-    cwd = os.getcwd()
+
     try:
-        eco_utils.set_params = forced_set_params
-        os.chdir(cfg_dir)
         tracker = eco2ai.Tracker(
             project_name="GreenAssistant",
             experiment_description="Eco2AI run",
-            file_name=str(csv_path)
+            file_name=str(csv_path),   # CSV dans /tmp
         )
-        tracker.start()
+        try:
+            tracker.start()
+        except PermissionError as e:
+            # Cas typique Streamlit Cloud → on sort proprement
+            return {
+                "error": "eco2ai_permission",
+                "notes": "Eco2AI n’a pas les droits d’écriture requis sur cet hébergement. "
+                         "Solution rapide : utiliser CodeCarbon ici, et exécuter Eco2AI en local.",
+                "stderr": repr(e),
+            }
+
         try:
             runpy.run_path(str(tmp), run_name="__main__")
         except SystemExit:
@@ -485,14 +520,16 @@ def measure_with_eco2ai(code: str) -> Dict[str, Any]:
         except Exception:
             run_err, err_text = True, traceback.format_exc()
         finally:
-            try: tracker.stop()
-            except Exception: pass
+            try:
+                tracker.stop()
+            except Exception:
+                pass
+
     finally:
-        eco_utils.set_params = orig_set_params
-        try: os.chdir(cwd)
-        except Exception: pass
         try: tmp.unlink(missing_ok=True)
         except Exception: pass
+
+    # ── Lire le CSV Eco2AI si dispo ─────────────────────────────────────
     try:
         if csv_path.exists():
             with csv_path.open("r", encoding="utf-8") as f:
@@ -510,10 +547,13 @@ def measure_with_eco2ai(code: str) -> Dict[str, Any]:
                 data["country"] = last.get("country") or None
     except Exception:
         pass
+
     if run_err:
         data["run_error"] = True
         data["stderr"] = err_text.strip()
+
     return data
+
 
 # ───────────────────────────── UI ─────────────────────────────
 st.title("Green Assistant")
