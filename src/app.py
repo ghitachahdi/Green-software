@@ -16,7 +16,7 @@ st.markdown("""
   --ok:#16a34a; --warn:#d97706; --bad:#ef4444;
 }
 
-/* App / Sidebar / Header */
+/* App / Header / Sidebar */
 [data-testid="stAppViewContainer"]{ background:var(--bg); color:var(--fg); }
 [data-testid="stHeader"]{ background:var(--bg-2); }
 [data-testid="stHeader"] *{ color:#e9efe7 !important; }
@@ -27,7 +27,8 @@ section[data-testid="stSidebar"] div[data-testid="stSidebarContent"]{
 h1,h2,h3,h4{ color:var(--fg); letter-spacing:.2px; }
 
 /* Labels Streamlit par défaut */
-div[data-testid="stWidgetLabel"] > label p, .stTextArea label p, .stSelectbox label p, label{ color:#fff !important; }
+div[data-testid="stWidgetLabel"] > label p,
+.stTextArea label p, .stSelectbox label p, label{ color:#fff !important; }
 
 /* Badge backend */
 .badge{
@@ -118,10 +119,8 @@ div[data-testid="stWidgetLabel"] > label p, .stTextArea label p, .stSelectbox la
 .result-context{ margin-top:6px; color:#aeb4ac; font-size:.88rem; }
 
 /* ── ÉDITEURS ACE (streamlit-ace) : contour fin & arrondi ─────────── */
-
-/* Conteneur Streamlit du composant (encerclant l'iframe) */
 div[data-testid="stComponent"]{
-  border:1px solid rgba(255,255,255,.14) !important;   /* contour affiné */
+  border:1px solid rgba(255,255,255,.14) !important;
   border-radius:12px !important;
   background:transparent !important;
   box-shadow:none !important;
@@ -129,8 +128,6 @@ div[data-testid="stComponent"]{
   padding:0 !important;
   overflow:hidden !important;
 }
-
-/* Hover + focus : léger accent, pas de halo blanc */
 div[data-testid="stComponent"]:hover{
   border-color:rgba(255,255,255,.24) !important;
 }
@@ -138,35 +135,66 @@ div[data-testid="stComponent"]:focus-within{
   border-color:#2e7d32 !important;
   box-shadow:0 0 0 2px rgba(46,125,50,.18) inset !important;
 }
-
-/* Iframe du composant */
 div[data-testid="stComponent"] > iframe,
 iframe[title^="streamlit_ace.st_ace"]{
-  border:0 !important;
-  outline:0 !important;
-  box-shadow:none !important;
-  border-radius:12px !important;
-  background:transparent !important;
+  border:0 !important; outline:0 !important; box-shadow:none !important;
+  border-radius:12px !important; background:transparent !important;
   display:block; width:100%; height:100%;
 }
-
-/* Éditeur Ace interne */
-.ace_editor,
-.ace_editor:focus,
-.ace_editor:focus-within{
-  border:0 !important;
-  outline:0 !important;
-  box-shadow:none !important;
+.ace_editor, .ace_editor:focus, .ace_editor:focus-within{
+  border:0 !important; outline:0 !important; box-shadow:none !important;
 }
-
-/* Gouttière & détails */
 .ace_gutter{ background:rgba(255,255,255,.04) !important; border-right:none !important; }
 .ace_print-margin{ display:none !important; }
 .ace_scroller{ background:transparent !important; }
+
+/* ── Expander "Voir le détail" : sombre, pas de flash blanc ─────────── */
+details[data-testid="stExpander"]{
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:12px;
+  background:transparent !important;
+  overflow:hidden;
+}
+details[data-testid="stExpander"] > summary{
+  background:#141414 !important;        /* état normal */
+  color:#e9efe7 !important;
+  border-radius:12px;
+  padding:.60rem .85rem;
+  list-style:none;
+  cursor:pointer;
+}
+details[data-testid="stExpander"] > summary::-webkit-details-marker{ display:none; }
+details[data-testid="stExpander"] > summary:hover{ background:#1a1a1a !important; }
+details[data-testid="stExpander"] > summary:active{ background:#1a1a1a !important; }
+details[data-testid="stExpander"] > summary:focus{
+  outline:none !important;
+  box-shadow:0 0 0 2px rgba(46,125,50,.18) inset !important;
+}
+details[data-testid="stExpander"][open] > summary{
+  background:#161616 !important;
+  color:#e9efe7 !important;
+}
+details[data-testid="stExpander"] > div[role="region"]{
+  background:#0f0f0f !important;
+  border-top:1px solid rgba(255,255,255,.08);
+}
+details[data-testid="stExpander"] summary svg,
+details[data-testid="stExpander"] [data-testid="stExpanderToggleIcon"] svg{
+  fill:#cfd7cc !important; stroke:#cfd7cc !important;
+}
+details[data-testid="stExpander"] summary svg path{
+  fill:#cfd7cc !important; stroke:#cfd7cc !important;
+}
+/* Expander à l’intérieur d’une alerte rouge */
+.stAlert details[data-testid="stExpander"] > summary{
+  background:#2a1414 !important; color:#ffdada !important;
+}
+.stAlert details[data-testid="stExpander"] > div[role="region"]{
+  background:#1c1010 !important;
+}
 </style>
 
 """, unsafe_allow_html=True)
-
 
 # ───────────────────────────── Session ─────────────────────────────
 ss = st.session_state
@@ -208,10 +236,17 @@ def _tool_chip_cls(tool: str) -> str:
     if "eco2ai" in t: return "tool-e2"
     return ""
 
-# ───────────────────── Détection & Recos ─────────────────────
+# ───────────────────── Détection & Recos (bloc complet, à coller AVANT l'usage) ─────────────────────
+import re
+from typing import List, Optional
+
 def detect_language(code: str) -> str:
-    if re.search(r"^\s*import\s+\w+", code, re.M) or re.search(r"\bdef\s+\w+\s*\(", code): return "python"
-    if re.search(r"\bfunction\s+\w+\s*\(|=>\s*{", code): return "javascript"
+    # Python : import / def
+    if re.search(r"^\s*import\s+\w+", code, re.M) or re.search(r"\bdef\s+\w+\s*\(", code):
+        return "python"
+    # JavaScript : function ... ( ou => {
+    if re.search(r"\bfunction\s+\w+\s*\(", code) or re.search(r"=>\s*{", code):
+        return "javascript"
     return "unknown"
 
 def detect_frameworks_python(code: str) -> List[str]:
@@ -219,29 +254,55 @@ def detect_frameworks_python(code: str) -> List[str]:
     return [lib for lib in libs if re.search(rf"\b(?:import|from)\s+{lib}\b", code)]
 
 def _has_sleep_in_loop(code: str) -> bool:
-    rg = re.compile(r"(^[ \t]*for\s+\w+\s+in\s+range\s*\([^)]*\):)([\\s\\S]*?)(?=^[^\\s]|$)", re.M)
+    # capture un bloc de boucle for ...: jusqu'à la prochaine ligne qui ne commence pas par un espace/tab ou fin de texte
+    rg = re.compile(r"(^[ \t]*for\s+\w+\s+in\s+range\s*\([^)]*\):)([\s\S]*?)(?=^[^\s]|$)", re.M)
     for m in rg.finditer(code):
-        if re.search(r"\n[ \t]+time\.sleep\s*\(", m.group(2)): return True
+        if re.search(r"\n[ \t]+time\.sleep\s*\(", m.group(2)):
+            return True
     return False
 
 def detect_energy_smells_python(code: str) -> List[str]:
     smells: List[str] = []
-    if _has_sleep_in_loop(code): smells.append("sleep_dans_boucle")
-    if re.search(r"for\s+\w+\s+in\s+range\s*\([^)]*\):[\s\S]*?(?:open\(|read\(|write\()", code): smells.append("IO_dans_boucle")
-    if re.search(r"for\s+\w+\s+in\s+range\s*\([^)]*\):[\s\S]*?\w+\s*\+=\s*['\"]", code): smells.append("concat_string_dans_boucle")
-    if re.search(r"for[\s\S]*?for[\s\S]*?for|for[\s\S]*?for", code): smells.append("boucles_imbriquees")
-    if re.search(r"\b(?:import|from)\s+numpy\b", code) and re.search(r"for\s+.*:\s*[\s\S]*\+=", code): smells.append("non_vectorise_alors_numpy_dispo")
-    if re.search(r"requests\.(?:get|post|put|delete|patch|head)\(", code) and re.search(r"\bfor\s+", code): smells.append("requetes_repetitives_sequentielles")
+    if _has_sleep_in_loop(code):
+        smells.append("sleep_dans_boucle")
+
+    # I/O dans une boucle for range(...)
+    if re.search(r"for\s+\w+\s+in\s+range\s*\([^)]*\):[\s\S]*?(?:open\(|read\(|write\()", code):
+        smells.append("IO_dans_boucle")
+
+    # Concaténation de strings dans une boucle
+    if re.search(r"for\s+\w+\s+in\s+range\s*\([^)]*\):[\s\S]*?\w+\s*\+=\s*['\"]", code):
+        smells.append("concat_string_dans_boucle")
+
+    # Boucles imbriquées (2+)
+    if re.search(r"for[\s\S]*?for", code):
+        smells.append("boucles_imbriquees")
+
+    # NumPy importé mais accumulation += dans une boucle
+    if re.search(r"\b(?:import|from)\s+numpy\b", code) and re.search(r"for\s+.*:\s*[\s\S]*\+=", code):
+        smells.append("non_vectorise_alors_numpy_dispo")
+
+    # Requêtes HTTP répétitives dans une boucle
+    if re.search(r"requests\.(?:get|post|put|delete|patch|head)\(", code) and re.search(r"\bfor\s+", code):
+        smells.append("requetes_repetitives_sequentielles")
+
     return smells
 
 def suggestions_for(smells: List[str], frameworks: List[str]) -> List[str]:
+    """Retourne des recommandations simples à partir des odeurs détectées + libs présentes."""
     s: List[str] = []
-    if "non_vectorise_alors_numpy_dispo" in smells: s.append("Vectoriser avec NumPy (np.dot, np.sum, broadcasting).")
-    if "sleep_dans_boucle" in smells: s.append("Éviter time.sleep() dans les boucles ; utiliser un scheduler/événements.")
-    if "IO_dans_boucle" in smells: s.append("Regrouper les I/O hors boucle (bufferisation, lecture/écriture en bloc).")
-    if "concat_string_dans_boucle" in smells: s.append("Utiliser ''.join() ou io.StringIO plutôt que s += ... en boucle.")
-    if "requetes_repetitives_sequentielles" in smells: s.append("Mutualiser (requests.Session) + paralléliser (asyncio/threading) avec throttling.")
-    if "pandas" in frameworks: s.append("Préférer les opérations Pandas vectorisées à apply/itertuples.")
+    if "non_vectorise_alors_numpy_dispo" in smells:
+        s.append("Vectoriser avec NumPy (np.dot, np.sum, broadcasting).")
+    if "sleep_dans_boucle" in smells:
+        s.append("Éviter time.sleep() dans les boucles ; utiliser un scheduler/événements.")
+    if "IO_dans_boucle" in smells:
+        s.append("Regrouper les I/O hors boucle (bufferisation, lecture/écriture en bloc).")
+    if "concat_string_dans_boucle" in smells:
+        s.append("Utiliser ''.join() ou io.StringIO plutôt que s += ... en boucle.")
+    if "requetes_repetitives_sequentielles" in smells:
+        s.append("Mutualiser (requests.Session) + paralléliser (asyncio/threading) avec throttling.")
+    if "pandas" in frameworks:
+        s.append("Préférer les opérations Pandas vectorisées à apply/itertuples.")
     return s
 
 # ───────────── RAG local (patterns + réécriture prudente) ─────────────
@@ -337,13 +398,38 @@ def greenify_code(code: str, smells: List[str], lang: str) -> Tuple[str, List[st
             out, ok = _append_note(out, tip); applied += ["P005: Vectorisation NumPy (note)"] if ok else []
     return out, applied
 
-# ──────────────────────── Mesures (2 backends actifs) ────────────────────────
+# ───────────────────── Helpers warning d’exécution ─────────────────────
+def preflight_compile(code: str) -> Tuple[bool, Optional[str]]:
+    """
+    Vérifie la validité syntaxique AVANT exécution pour éviter de lancer les trackers inutilement.
+    Retourne (ok, traceback_ou_None).
+    """
+    try:
+        compile(code, "<snippet>", "exec")
+        return True, None
+    except Exception:
+        return False, traceback.format_exc()
+
+def show_run_warning(res: Dict[str, Any], contexte: str = "analyse") -> None:
+    """
+    Affiche un warning explicite si l'exécution a échoué.
+    Attend un dict 'res' pouvant contenir 'run_error' et 'stderr'.
+    """
+    if res.get("run_error"):
+        st.warning(f"⚠️ Alerte d’exécution ({contexte}) : erreur Python — le code n’a pas pu être lancé.")
+        if res.get("stderr"):
+            with st.expander("Voir le détail de l’erreur (traceback)"):
+                st.code(res["stderr"])
+
+# ──────────────────────── Mesures (2 backends) ────────────────────────
 def _write_snippet(code: str) -> Path:
     tmp = Path(tempfile.mkdtemp(prefix="code_")) / "snippet.py"; tmp.write_text(code, encoding="utf-8"); return tmp
 
 def measure_with_codecarbon(code: str) -> Dict[str, Any]:
-    try: from codecarbon import EmissionsTracker
-    except Exception as e: return {"error":"codecarbon_missing","notes":"Installe : pip install codecarbon psutil","stderr":str(e)}
+    try:
+        from codecarbon import EmissionsTracker
+    except Exception as e:
+        return {"error":"codecarbon_missing","notes":"Installe : pip install codecarbon psutil","stderr":str(e)}
     out_dir = Path(tempfile.mkdtemp(prefix="cc_run_")); csv_path = out_dir / "emissions.csv"
     os.environ.setdefault("CODECARBON_LOG_LEVEL","error")
     tracker = EmissionsTracker(output_dir=str(out_dir), output_file="emissions.csv", measure_power_secs=1, save_to_file=True, log_level="error")
@@ -352,7 +438,8 @@ def measure_with_codecarbon(code: str) -> Dict[str, Any]:
         tracker.start()
         try: runpy.run_path(str(tmp), run_name="__main__")
         except SystemExit: pass
-        except Exception: run_err, err_text = True, traceback.format_exc()
+        except Exception:
+            run_err, err_text = True, traceback.format_exc()
         finally: emissions_kg = tracker.stop()
     finally:
         time.sleep(0.1)
@@ -383,36 +470,26 @@ def measure_with_eco2ai(code: str) -> Dict[str, Any]:
         import eco2ai.utils as eco_utils
     except Exception as e:
         return {"error": "eco2ai_missing", "notes": "Installe : pip install eco2ai psutil", "stderr": str(e)}
-
-    import os, tempfile, csv, traceback, runpy
-    from pathlib import Path
-
     out_dir = Path(tempfile.mkdtemp(prefix="eco2ai_out_"))
     cfg_dir = Path(tempfile.mkdtemp(prefix="eco2ai_cfg_"))
     csv_path = out_dir / "emissions.csv"
     cfg_file = cfg_dir / "config.txt"
-
     eco_utils.CONFIG_FILE = str(cfg_file)
-
     orig_set_params = getattr(eco_utils, "set_params")
     def forced_set_params(*args, **kwargs):
         kwargs.setdefault("filename", str(cfg_file))
         return orig_set_params(*args, **kwargs)
-
     tmp = Path(tempfile.mkdtemp(prefix="code_")) / "snippet.py"
     tmp.write_text(code, encoding="utf-8")
-
     data: Dict[str, Any] = {
         "duration_s": None, "energy_kwh": None,
         "co2eq_g": None, "emissions_kg": None, "country": None
     }
     run_err, err_text = False, ""
-
     cwd = os.getcwd()
     try:
         eco_utils.set_params = forced_set_params
         os.chdir(cfg_dir)
-
         tracker = eco2ai.Tracker(
             project_name="GreenAssistant",
             experiment_description="Eco2AI run",
@@ -428,14 +505,12 @@ def measure_with_eco2ai(code: str) -> Dict[str, Any]:
         finally:
             try: tracker.stop()
             except Exception: pass
-
     finally:
         eco_utils.set_params = orig_set_params
         try: os.chdir(cwd)
         except Exception: pass
         try: tmp.unlink(missing_ok=True)
         except Exception: pass
-
     try:
         if csv_path.exists():
             with csv_path.open("r", encoding="utf-8") as f:
@@ -453,7 +528,6 @@ def measure_with_eco2ai(code: str) -> Dict[str, Any]:
                 data["country"] = last.get("country") or None
     except Exception:
         pass
-
     if run_err:
         data["run_error"] = True
         data["stderr"] = err_text.strip()
@@ -475,7 +549,7 @@ with left:
     st.markdown(f'<span class="badge">Backend sélectionné : {tool}</span>', unsafe_allow_html=True)
     st.markdown('<div class="field-label">Code non green à analyser :</div>', unsafe_allow_html=True)
 
-    # éditeur Ace sans bouton APPLY
+    # Éditeur Ace sans bouton APPLY
     code_to_analyse = st_ace(
         value=ss.get("code_input_analyse", ""),
         language="python",
@@ -487,7 +561,7 @@ with left:
         wrap=False,
         show_gutter=True,
         show_print_margin=False,
-        auto_update=True,      # <= enlève le bouton APPLY
+        auto_update=True,      # <= pas de bouton APPLY
         key="ace_analyse",
     ) or ""
     ss["code_input_analyse"] = code_to_analyse
@@ -506,7 +580,7 @@ with right:
         wrap=False,
         show_gutter=True,
         show_print_margin=False,
-        auto_update=True,      # <= enlève le bouton APPLY
+        auto_update=True,      # <= pas de bouton APPLY
         key="ace_generate",
     ) or ""
     ss["code_input_generate"] = code_to_generate
@@ -517,21 +591,17 @@ def render_result(res: Dict[str, Any]) -> None:
     kg = res.get("emissions_kg"); co2g = res.get("co2eq_g")
     duration = res.get("duration_s"); energy = res.get("energy_kwh")
     cpu = res.get("cpu_energy_kwh"); gpu = res.get("gpu_energy_kwh"); ram = res.get("ram_energy_kwh")
-
     co2_g_txt = _fmt_g(co2g) if isinstance(co2g,(int,float)) else (_fmt_g(kg*1000.0) if isinstance(kg,(int,float)) else "—")
     duration_txt = _fmt_s(duration); energy_txt = _fmt_wh(energy)
-
     extras = []
     if isinstance(cpu, (int, float)): extras.append(f"CPU&nbsp;: {_fmt_wh(cpu)}")
     if isinstance(gpu, (int, float)): extras.append(f"GPU&nbsp;: {_fmt_wh(gpu)}")
     if isinstance(ram, (int, float)): extras.append(f"RAM&nbsp;: {_fmt_wh(ram)}")
     extras_html = f'<div class="result-energies">Détails énergie&nbsp;: ' + " · ".join(extras) + "</div>" if extras else ""
-
     ctx = []
     for k in ["country","region","cloud_provider","provider","regions"]:
         if res.get(k): ctx.append(f"{k}: {res[k]}")
     ctx_html = f'<div class="result-context">Contexte&nbsp;: ' + " | ".join(ctx) + "</div>" if ctx else ""
-
     st.markdown(f"""
 <div class="result-wrap"><div class="result-card">
   <div class="kpi-grid">
@@ -542,28 +612,42 @@ def render_result(res: Dict[str, Any]) -> None:
   {extras_html}{ctx_html}
 </div></div>""", unsafe_allow_html=True)
 
-# Analyse
+# Analyse (avec warning explicite si le code ne se lance pas)
 if run_btn and code_to_analyse.strip():
     lang = detect_language(code_to_analyse)
     fw = detect_frameworks_python(code_to_analyse) if lang == "python" else []
     smells = detect_energy_smells_python(code_to_analyse) if lang == "python" else []
     recos = suggestions_for(smells, fw)
 
+    # Pré-vérification syntaxique
+    ok_syntax, tb = preflight_compile(code_to_analyse)
+
     with st.spinner("Mesure en cours…"):
-        if tool == "CodeCarbon":
-            res = measure_with_codecarbon(code_to_analyse)
-        elif tool == "Eco2AI":
-            res = measure_with_eco2ai(code_to_analyse)
+        if not ok_syntax:
+            # Ne lance pas les trackers si la syntaxe est invalide
+            res = {"run_error": True, "stderr": tb}
         else:
-            res = {"error":"unsupported_tool","notes":"Outil non pris en charge."}
+            if tool == "CodeCarbon":
+                res = measure_with_codecarbon(code_to_analyse)
+            elif tool == "Eco2AI":
+                res = measure_with_eco2ai(code_to_analyse)
+            else:
+                res = {"error":"unsupported_tool","notes":"Outil non pris en charge."}
 
     ss["history"].append({"tool": tool, "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"), "code": code_to_analyse, "res": res})
 
     st.subheader("Résultats d’analyse")
-    if "error" in res:
+
+    # Erreur d'outil (lib manquante / non supporté)
+    if "error" in res and not res.get("run_error"):
         st.error(res.get("notes") or f"Erreur {res.get('error')}")
         if res.get("stderr"):
-            with st.expander("Détails de l’erreur"): st.code(res["stderr"])
+            with st.expander("Détails de l’erreur"):
+                st.code(res["stderr"])
+
+    # Alerte d’exécution quand le code ne se lance pas
+    if res.get("run_error"):
+        show_run_warning(res, "analyse")
     else:
         render_result(res)
         st.markdown("### Analyse du code")
@@ -576,7 +660,7 @@ if run_btn and code_to_analyse.strip():
         else:
             st.markdown("- Aucune recommandation détectée.")
 
-# Génération
+# Génération (réécriture "green" sans exécuter le code généré)
 if gen_btn and code_to_generate.strip():
     lang = detect_language(code_to_generate)
     smells = detect_energy_smells_python(code_to_generate) if lang == "python" else []
@@ -587,7 +671,8 @@ if gen_btn and code_to_generate.strip():
 
     st.subheader("Code green généré")
     st.code(green_code, language="python" if lang == "python" else None)
-    st.download_button("Télécharger le code",
+    st.download_button(
+        "Télécharger le code",
         data=green_code,
         file_name="green_code_optimized.py" if lang == "python" else "green_code_optimized.txt",
         mime="text/plain"
