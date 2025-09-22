@@ -3,40 +3,60 @@ import os, sys, tempfile, time, traceback, runpy, json, csv, subprocess, re
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 import streamlit as st
+from streamlit_ace import st_ace
 
 # ────────────────────────────── Thème & Styles ──────────────────────────────
 st.set_page_config(page_title="Green Assistant", page_icon="🌱", layout="centered", initial_sidebar_state="collapsed")
 st.markdown("""
 <style>
-:root{ --bg:#0e0e0e; --bg-2:#171616; --fg:#ffffff; --green:#205f2a; --green-2:#1b5123; --chip:#102114;
-       --card:#121212; --card-b:#1e1e1e; --muted:#a6b0a4; --ok:#16a34a; --warn:#d97706; --bad:#ef4444; }
-[data-testid="stAppViewContainer"]{ background:var(--bg); color:var(--fg); }
-[data-testid="stHeader"]{ background:var(--bg-2); } [data-testid="stHeader"] *{ color:#e9efe7 !important; }
-section[data-testid="stSidebar"]{ background:var(--bg-2); border-right:1px solid #111; }
-section[data-testid="stSidebar"] div[data-testid="stSidebarContent"]{ min-height:100vh; display:flex; flex-direction:column; gap:12px; padding:12px 14px !important; }
-h1,h2,h3,h4{ color:var(--fg); letter-spacing:.2px; }
-div[data-testid="stWidgetLabel"] > label p, .stTextArea label p, .stSelectbox label p, label { color:#fff !important; }
-
-/* Zones côte à côte */
-.section-card{ background:var(--card); border:1px solid var(--card-b); border-radius:16px; padding:18px 20px; box-shadow:0 8px 24px rgba(0,0,0,.28); }
-
-/* Champs code blancs */
-.stTextArea textarea{
-  background:#fff !important; color:#000 !important;
-  font-family:"JetBrains Mono","Fira Code","SFMono-Regular",Menlo,Consolas,monospace !important;
-  font-size:14px !important; line-height:1.45; border-radius:12px;
+:root{
+  --bg:#0e0e0e; --bg-2:#171616; --fg:#ffffff;
+  --green:#205f2a; --green-2:#1b5123; --chip:#102114;
+  --card:#121212; --card-b:#1e1e1e; --muted:#a6b0a4;
+  --ok:#16a34a; --warn:#d97706; --bad:#ef4444;
 }
 
-/* Boutons verts (tous) */
+/* App / Sidebar / Header */
+[data-testid="stAppViewContainer"]{ background:var(--bg); color:var(--fg); }
+[data-testid="stHeader"]{ background:var(--bg-2); }
+[data-testid="stHeader"] *{ color:#e9efe7 !important; }
+section[data-testid="stSidebar"]{ background:var(--bg-2); border-right:1px solid #111; }
+section[data-testid="stSidebar"] div[data-testid="stSidebarContent"]{
+  min-height:100vh; display:flex; flex-direction:column; gap:12px; padding:12px 14px !important;
+}
+h1,h2,h3,h4{ color:var(--fg); letter-spacing:.2px; }
+
+/* Labels Streamlit par défaut */
+div[data-testid="stWidgetLabel"] > label p, .stTextArea label p, .stSelectbox label p, label{ color:#fff !important; }
+
+/* Badge backend */
+.badge{
+  display:inline-block; padding:.2rem .6rem; border-radius:999px;
+  border:1px solid #2a3b2a; background:var(--chip); color:#bfe8c1; font-size:.78rem;
+}
+
+/* Label custom au-dessus des éditeurs (blanc, NON gras) */
+.field-label{
+  color:#fff !important; font-size:.88rem; font-weight:400; letter-spacing:.2px;
+  margin:2px 0 6px; opacity:1 !important;
+}
+
+/* Cartes / sections */
+.section-card{
+  background:var(--card); border:1px solid var(--card-b); border-radius:16px;
+  padding:18px 20px; box-shadow:0 8px 24px rgba(0,0,0,.28);
+}
+
+/* Boutons */
 .stButton{ display:flex; justify-content:center; }
 .stButton > button{
-  min-width:200px !important; background:var(--green) !important; color:#fff !important;
-  border:none; border-radius:14px; padding:.60rem 1.2rem; box-shadow:0 6px 18px rgba(0,0,0,.35);
-  font-weight:700; letter-spacing:.2px;
+  min-width:150px !important; background:var(--green) !important; color:#fff !important;
+  border:none; border-radius:14px; padding:.40rem 1.2rem; box-shadow:0 6px 18px rgba(0,0,0,.35);
+  font-weight:600; letter-spacing:.2px;
 }
 .stButton > button:hover{ background:var(--green-2) !important; }
 
-/* Download button en vert */
+/* Download button */
 .stDownloadButton > button{
   min-width:200px !important; background:var(--green) !important; color:#fff !important;
   border:none; border-radius:14px; padding:.60rem 1.2rem; box-shadow:0 6px 18px rgba(0,0,0,.35);
@@ -44,16 +64,14 @@ div[data-testid="stWidgetLabel"] > label p, .stTextArea label p, .stSelectbox la
 }
 .stDownloadButton > button:hover{ background:var(--green-2) !important; }
 
-/* Logo + Titre (sidebar) */
+/* Sidebar header */
 .sidebar-logo{
   position:relative; display:flex; justify-content:center; align-items:center;
-  font-size:52px; line-height:1;
-  filter:drop-shadow(0 4px 10px rgba(0,0,0,.35));
+  font-size:52px; line-height:1; filter:drop-shadow(0 4px 10px rgba(0,0,0,.35));
   padding-bottom:14px; margin-bottom:20px !important;
 }
 .sidebar-logo::after{
-  content:""; position:absolute; left:8px; right:8px; bottom:0;
-  height:2px; border-radius:999px;
+  content:""; position:absolute; left:8px; right:8px; bottom:0; height:2px; border-radius:999px;
   background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent);
 }
 .sidebar-title{
@@ -61,64 +79,94 @@ div[data-testid="stWidgetLabel"] > label p, .stTextArea label p, .stSelectbox la
   letter-spacing:.2px; margin:0 0 15px 0 !important;
 }
 
-/* Historique — cartes */
-.history-empty{
-  color:var(--muted); text-align:center; padding:6px 0 2px; font-size:.95rem;
-}
+/* Historique */
+.history-empty{ color:var(--muted); text-align:center; padding:6px 0 2px; font-size:.95rem; }
 .history-card{
   position:relative; border-radius:14px; padding:10px 12px;
   background:linear-gradient(180deg, #151515 0%, #0f0f0f 100%);
-  border:1px solid rgba(255,255,255,.06);
-  box-shadow:0 8px 22px rgba(0,0,0,.25);
+  border:1px solid rgba(255,255,255,.06); box-shadow:0 8px 22px rgba(0,0,0,.25);
   transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease;
 }
-.history-card:hover{
-  transform:translateY(-1px);
-  box-shadow:0 12px 26px rgba(0,0,0,.35);
-  border-color:rgba(255,255,255,.14);
-}
+.history-card:hover{ transform:translateY(-1px); box-shadow:0 12px 26px rgba(0,0,0,.35); border-color:rgba(255,255,255,.14); }
 .hdr{ display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:6px; }
-.chip{
-  display:inline-flex; align-items:center; gap:6px;
-  padding:.18rem .55rem; border-radius:999px; font-size:.78rem; font-weight:700;
-  border:1px solid rgba(255,255,255,.12);
-}
-.tool-cc{ background:#0f2a18; color:#b7f4c4; border-color:#1e5e36;}
-.tool-e2{ background:#241229; color:#f1c8ff; border-color:#6a1e7a;}
+.chip{ display:inline-flex; align-items:center; gap:6px; padding:.18rem .55rem; border-radius:999px; font-size:.78rem; font-weight:700; border:1px solid rgba(255,255,255,.12); }
+.tool-cc{ background:#0f2a18; color:#b7f4c4; border-color:#1e5e36; }
+.tool-e2{ background:#241229; color:#f1c8ff; border-color:#6a1e7a; }
+.badge-co2{ padding:.22rem .55rem; border-radius:999px; font-weight:800; font-size:.80rem; background:#1a1a1a; border:1px solid rgba(255,255,255,.12); }
+.lv-ok{ color:#86efac; border-color:#234f2b; background:#102115; }
+.lv-warn{ color:#fbbf24; border-color:#4f3b1a; background:#211a10; }
+.lv-bad{ color:#fca5a5; border-color:#5a1e1e; background:#210f10; }
 
-.badge-co2{
-  padding:.22rem .55rem; border-radius:999px; font-weight:800; font-size:.80rem;
-  background:#1a1a1a; border:1px solid rgba(255,255,255,.12);
-}
-.lv-ok{   color:#86efac; border-color:#234f2b; background:#102115;}
-.lv-warn{ color:#fbbf24; border-color:#4f3b1a; background:#211a10;}
-.lv-bad{  color:#fca5a5; border-color:#5a1e1e; background:#210f10;}
-
-/* Code preview & meta */
+/* Résultats */
 .code-preview{
-  color:#d7dbd5; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  color:#d7dbd5; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
   font-size:.82rem; line-height:1.35; opacity:.95; margin:2px 0 8px;
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
 }
-.meta{
-  display:flex; gap:10px; flex-wrap:wrap; color:#aeb4ac; font-size:.8rem;
+.meta{ display:flex; gap:10px; flex-wrap:wrap; color:#aeb4ac; font-size:.8rem; }
+.meta .pill{ background:#0f0f0f; border:1px solid rgba(255,255,255,.08); border-radius:8px; padding:.2rem .45rem; color:#cfd7cc; }
+.result-wrap{ margin:8px 0 18px; }
+.result-card{
+  background:var(--card); border:1px solid var(--card-b); border-radius:16px;
+  padding:18px 20px; box-shadow:0 8px 24px rgba(0,0,0,.28);
 }
-.meta .pill{
-  background:#0f0f0f; border:1px solid rgba(255,255,255,.08);
-  border-radius:8px; padding:.2rem .45rem; color:#cfd7cc;
-}
-
-/* Carte résultat */
-.result-wrap{ margin: 8px 0 18px; }
-.result-card{ background:var(--card); border:1px solid var(--card-b); border-radius:16px; padding:18px 20px; box-shadow:0 8px 24px rgba(0,0,0,.28); }
-.kpi-grid{ display:grid; gap:12px; grid-template-columns: repeat(3, minmax(0,1fr)); }
+.kpi-grid{ display:grid; gap:12px; grid-template-columns:repeat(3, minmax(0,1fr)); }
 .kpi{ background:linear-gradient(180deg,#151515 0%,#0f0f0f 100%); border:1px solid rgba(255,255,255,.08); border-radius:14px; padding:16px; text-align:center; }
 .kpi h4{ margin:0 0 6px; font-weight:700; font-size:1.1rem; color:#e9efe7; }
 .kpi .val{ font-size:1.1rem; color:#fff; }
 .result-energies{ margin-top:10px; color:#cfd7cc; font-size:.92rem; }
 .result-context{ margin-top:6px; color:#aeb4ac; font-size:.88rem; }
+
+/* ── ÉDITEURS ACE (streamlit-ace) : contour fin & arrondi ─────────── */
+
+/* Conteneur Streamlit du composant (encerclant l'iframe) */
+div[data-testid="stComponent"]{
+  border:1px solid rgba(255,255,255,.14) !important;   /* contour affiné */
+  border-radius:12px !important;
+  background:transparent !important;
+  box-shadow:none !important;
+  outline:0 !important;
+  padding:0 !important;
+  overflow:hidden !important;
+}
+
+/* Hover + focus : léger accent, pas de halo blanc */
+div[data-testid="stComponent"]:hover{
+  border-color:rgba(255,255,255,.24) !important;
+}
+div[data-testid="stComponent"]:focus-within{
+  border-color:#2e7d32 !important;
+  box-shadow:0 0 0 2px rgba(46,125,50,.18) inset !important;
+}
+
+/* Iframe du composant */
+div[data-testid="stComponent"] > iframe,
+iframe[title^="streamlit_ace.st_ace"]{
+  border:0 !important;
+  outline:0 !important;
+  box-shadow:none !important;
+  border-radius:12px !important;
+  background:transparent !important;
+  display:block; width:100%; height:100%;
+}
+
+/* Éditeur Ace interne */
+.ace_editor,
+.ace_editor:focus,
+.ace_editor:focus-within{
+  border:0 !important;
+  outline:0 !important;
+  box-shadow:none !important;
+}
+
+/* Gouttière & détails */
+.ace_gutter{ background:rgba(255,255,255,.04) !important; border-right:none !important; }
+.ace_print-margin{ display:none !important; }
+.ace_scroller{ background:transparent !important; }
 </style>
+
 """, unsafe_allow_html=True)
+
 
 # ───────────────────────────── Session ─────────────────────────────
 ss = st.session_state
@@ -145,11 +193,7 @@ def _co2_fmt_kg(kg: Optional[float]) -> str:
     return f"{kg:.5f} kgCO₂"
 
 def _fmt_s(v: Optional[float]) -> str: return _fmt_num(v, lambda x: f"{x:.2f} s")
-
-# kWh → Wh (pour l’affichage)
-def _fmt_wh(v: Optional[float]) -> str:
-    return _fmt_num(v, lambda x: f"{x*1000:.3f} Wh")
-
+def _fmt_wh(v: Optional[float]) -> str: return _fmt_num(v, lambda x: f"{x*1000:.3f} Wh")
 def _fmt_g(v: Optional[float]) -> str: return _fmt_num(v, lambda x: f"{x:.3f} g")
 
 def _co2_level(kg: Optional[float]) -> str:
@@ -343,22 +387,18 @@ def measure_with_eco2ai(code: str) -> Dict[str, Any]:
     import os, tempfile, csv, traceback, runpy
     from pathlib import Path
 
-    # Dossiers temporaires en écriture (ok sur Streamlit Cloud)
     out_dir = Path(tempfile.mkdtemp(prefix="eco2ai_out_"))
     cfg_dir = Path(tempfile.mkdtemp(prefix="eco2ai_cfg_"))
     csv_path = out_dir / "emissions.csv"
-    cfg_file = cfg_dir / "config.txt"   # eco2ai l’appelle "config.txt"
+    cfg_file = cfg_dir / "config.txt"
 
-    # 1) Rediriger le chemin par défaut utilisé en interne par eco2ai
     eco_utils.CONFIG_FILE = str(cfg_file)
 
-    # 2) Forcer filename pour set_params interne
     orig_set_params = getattr(eco_utils, "set_params")
     def forced_set_params(*args, **kwargs):
         kwargs.setdefault("filename", str(cfg_file))
         return orig_set_params(*args, **kwargs)
 
-    # Snippet utilisateur à exécuter
     tmp = Path(tempfile.mkdtemp(prefix="code_")) / "snippet.py"
     tmp.write_text(code, encoding="utf-8")
 
@@ -370,13 +410,13 @@ def measure_with_eco2ai(code: str) -> Dict[str, Any]:
 
     cwd = os.getcwd()
     try:
-        eco_utils.set_params = forced_set_params  # patch actif
-        os.chdir(cfg_dir)  # se placer dans un dossier writable
+        eco_utils.set_params = forced_set_params
+        os.chdir(cfg_dir)
 
         tracker = eco2ai.Tracker(
             project_name="GreenAssistant",
             experiment_description="Eco2AI run",
-            file_name=str(csv_path)  # CSV dans /tmp
+            file_name=str(csv_path)
         )
         tracker.start()
         try:
@@ -396,7 +436,6 @@ def measure_with_eco2ai(code: str) -> Dict[str, Any]:
         try: tmp.unlink(missing_ok=True)
         except Exception: pass
 
-    # Lire les résultats
     try:
         if csv_path.exists():
             with csv_path.open("r", encoding="utf-8") as f:
@@ -423,7 +462,6 @@ def measure_with_eco2ai(code: str) -> Dict[str, Any]:
 # ───────────────────────────── UI ─────────────────────────────
 st.title("Green Assistant")
 
-# 2 zones côte à côte
 left, right = st.columns(2, gap="large")
 
 with left:
@@ -435,24 +473,44 @@ with left:
         key="tool_select",
     )
     st.markdown(f'<span class="badge">Backend sélectionné : {tool}</span>', unsafe_allow_html=True)
-    code_to_analyse = st.text_area(
-        "Code non green à analyser:",
-        height=260,
-        key="code_input_analyse",
-        placeholder="Collez ici votre code"
-    )
+    st.markdown('<div class="field-label">Code non green à analyser :</div>', unsafe_allow_html=True)
+
+    # éditeur Ace sans bouton APPLY
+    code_to_analyse = st_ace(
+        value=ss.get("code_input_analyse", ""),
+        language="python",
+        theme="tomorrow_night",
+        keybinding="vscode",
+        min_lines=16,
+        height=226,
+        tab_size=4,
+        wrap=False,
+        show_gutter=True,
+        show_print_margin=False,
+        auto_update=True,      # <= enlève le bouton APPLY
+        key="ace_analyse",
+    ) or ""
+    ss["code_input_analyse"] = code_to_analyse
     run_btn = st.button("Analyser", key="btn_analyser")
-    st.markdown('</div>', unsafe_allow_html=True)
 
 with right:
-    code_to_generate = st.text_area(
-        "Code non green pour génération:",
-        height=385,
-        key="code_input_generate",
-        placeholder="Collez ici votre code"
-    )
+    st.markdown('<div class="field-label">Code non green pour génération :</div>', unsafe_allow_html=True)
+    code_to_generate = st_ace(
+        value=ss.get("code_input_generate", ""),
+        language="python",
+        theme="tomorrow_night",
+        keybinding="vscode",
+        min_lines=22,
+        height=355,
+        tab_size=4,
+        wrap=False,
+        show_gutter=True,
+        show_print_margin=False,
+        auto_update=True,      # <= enlève le bouton APPLY
+        key="ace_generate",
+    ) or ""
+    ss["code_input_generate"] = code_to_generate
     gen_btn = st.button("Générer", key="btn_generer")
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # ───────────────────────────── Résultats ─────────────────────────────
 def render_result(res: Dict[str, Any]) -> None:
@@ -460,7 +518,6 @@ def render_result(res: Dict[str, Any]) -> None:
     duration = res.get("duration_s"); energy = res.get("energy_kwh")
     cpu = res.get("cpu_energy_kwh"); gpu = res.get("gpu_energy_kwh"); ram = res.get("ram_energy_kwh")
 
-    # On n'affiche plus le gros titre en kgCO2
     co2_g_txt = _fmt_g(co2g) if isinstance(co2g,(int,float)) else (_fmt_g(kg*1000.0) if isinstance(kg,(int,float)) else "—")
     duration_txt = _fmt_s(duration); energy_txt = _fmt_wh(energy)
 
@@ -502,7 +559,7 @@ if run_btn and code_to_analyse.strip():
 
     ss["history"].append({"tool": tool, "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"), "code": code_to_analyse, "res": res})
 
-    st.subheader("Résultat d’analyse")
+    st.subheader("Résultats d’analyse")
     if "error" in res:
         st.error(res.get("notes") or f"Erreur {res.get('error')}")
         if res.get("stderr"):
@@ -555,16 +612,16 @@ with st.sidebar:
         st.markdown('<div class="history-empty">Aucun Run pour le moment.</div>', unsafe_allow_html=True)
     else:
         for h in reversed(hist):
-            tool = h.get("tool", "?"); res = h.get("res", {}) or {}
+            tool_name = h.get("tool", "?"); res = h.get("res", {}) or {}
             kg = res.get("emissions_kg"); co2_txt = _co2_fmt_kg(kg) if isinstance(kg,(int,float)) else "—"
             level = _co2_level(kg if isinstance(kg,(int,float)) else None)
             ts = h.get("timestamp",""); dur = res.get("duration_s"); en = res.get("energy_kwh")
-            dur_txt = _fmt_s(dur); en_txt = _fmt_wh(en)  # affichage en Wh dans l'historique
+            dur_txt = _fmt_s(dur); en_txt = _fmt_wh(en)
             code_prev = _short_code_preview(h.get("code",""))
             st.markdown(f"""
 <div class="history-card">
   <div class="hdr">
-    <span class="chip {_tool_chip_cls(tool)}">{tool}</span>
+    <span class="chip {_tool_chip_cls(tool_name)}">{tool_name}</span>
     <span class="badge-co2 {level}">{co2_txt}</span>
   </div>
   <div class="code-preview">{code_prev}</div>
